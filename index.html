@@ -2,27 +2,59 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<script>
+(function(){
+  try{
+    var t = localStorage.getItem("crt_theme");
+    if(t === "dark") document.documentElement.classList.add("dark");
+  }catch(e){}
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>سجل تقارير الكاميرات</title>
 <style>
   :root{
-    --paper: #EFEBDD;
-    --paper-card: #F8F5EC;
-    --rule: #AEB9CC;
+    --paper: #FFFFFF;
+    --paper-card: #FFFFFF;
+    --rule: #D9DEE6;
     --margin-red: #A73B3B;
     --ink: #23283A;
     --ink-faint: #6B7180;
     --stamp-red: #A73B3B;
     --stamp-green: #35563B;
-    --shadow: rgba(35,40,58,0.14);
+    --shadow: rgba(35,40,58,0.10);
+    --ledger-line: rgba(174,185,204,0.35);
+    --fault-tint: rgba(167,59,59,0.05);
+    --fault-tint-focus: rgba(167,59,59,0.09);
+    --input-focus-tint: rgba(167,59,59,0.06);
+    --active-tint: rgba(167,59,59,0.12);
+    --stamp-green-tint: rgba(53,86,59,0.08);
   }
+  html.dark{
+    --paper: #14161d;
+    --paper-card: #1b1e28;
+    --rule: #343a4a;
+    --margin-red: #c4605c;
+    --ink: #e9e9f0;
+    --ink-faint: #9aa0b4;
+    --stamp-red: #d2726d;
+    --stamp-green: #5f9468;
+    --shadow: rgba(0,0,0,0.5);
+    --ledger-line: rgba(255,255,255,0.06);
+    --fault-tint: rgba(196,96,92,0.10);
+    --fault-tint-focus: rgba(196,96,92,0.16);
+    --input-focus-tint: rgba(196,96,92,0.14);
+    --active-tint: rgba(196,96,92,0.20);
+    --stamp-green-tint: rgba(95,148,104,0.16);
+  }
+  html, body{ background:var(--paper); transition:background 0.2s ease, color 0.2s ease; }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{
     background:var(--paper);
     background-image:
       linear-gradient(var(--paper) 0%, var(--paper) 100%),
-      repeating-linear-gradient(0deg, transparent, transparent 34px, rgba(174,185,204,0.35) 35px);
+      repeating-linear-gradient(0deg, transparent, transparent 34px, var(--ledger-line) 35px);
     color:var(--ink);
     font-family:"Tahoma","Segoe UI","Geeza Pro",Arial,sans-serif;
     min-height:100vh;
@@ -77,8 +109,8 @@
     cursor:pointer;
     transition:background 0.15s ease;
   }
-  .day-row:hover{ background:rgba(167,59,59,0.06); }
-  .day-row:active{ background:rgba(167,59,59,0.12); }
+  .day-row:hover{ background:var(--input-focus-tint); }
+  .day-row:active{ background:var(--active-tint); }
   .day-main{ display:flex; align-items:center; gap:10px; }
   .day-name{ font-size:17px; font-weight:700; }
   .day-badge{
@@ -169,7 +201,7 @@
     border-left:1px dashed var(--rule);
   }
   table.log-table input:focus{
-    background:rgba(167,59,59,0.06);
+    background:var(--input-focus-tint);
   }
   td.col-time{
     border-left:1px dashed var(--rule);
@@ -194,7 +226,7 @@
   }
   .time-cell select.ampm-select{
     border:none;
-    background:rgba(53,86,59,0.08);
+    background:var(--stamp-green-tint);
     border-radius:3px;
     font-family:inherit;
     font-size:12px;
@@ -233,7 +265,7 @@
     cursor:pointer;
     transition:background 0.15s ease;
   }
-  .add-shift-btn:hover{ background:rgba(53,86,59,0.08); }
+  .add-shift-btn:hover{ background:var(--stamp-green-tint); }
 
   /* ===== status / sign-off section ===== */
   .status-section{
@@ -271,7 +303,7 @@
     min-height:70px;
     resize:vertical;
     border:1px dashed var(--margin-red);
-    background:rgba(167,59,59,0.05);
+    background:var(--fault-tint);
     border-radius:3px;
     font-family:inherit;
     font-size:14px;
@@ -279,7 +311,7 @@
     padding:10px;
     outline:none;
   }
-  .fault-field textarea:focus{ background:rgba(167,59,59,0.09); }
+  .fault-field textarea:focus{ background:var(--fault-tint-focus); }
 
   .field-block{ margin-bottom:18px; }
   .name-list{ display:flex; flex-direction:column; gap:8px; }
@@ -356,9 +388,33 @@
   }
   .save-flag.show{ opacity:0.92; }
   .save-flag.warn{ background:var(--margin-red); }
+
+  /* ===== theme toggle ===== */
+  .theme-toggle{
+    position:fixed;
+    top:12px;
+    left:12px;
+    z-index:50;
+    width:36px;
+    height:36px;
+    border-radius:50%;
+    border:1.5px solid var(--rule);
+    background:var(--paper-card);
+    color:var(--ink);
+    font-size:16px;
+    line-height:1;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    box-shadow:0 2px 8px var(--shadow);
+    transition:background 0.2s ease, border-color 0.2s ease;
+  }
+  .theme-toggle:hover{ border-color:var(--stamp-green); }
 </style>
 </head>
 <body>
+  <button class="theme-toggle" id="themeToggle" title="تبديل الوضع الليلي/النهاري">🌙</button>
   <div class="sheet" id="app">
     <div class="loading-msg">جارِ التحميل…</div>
   </div>
@@ -501,7 +557,7 @@ async function renderHome(){
     const count = await countEventsForDay(iso);
     let badge = "";
     if(d.getTime() === today.getTime()) badge = `<span class="day-badge badge-today">اليوم</span>`;
-    else if(d.getTime() === tomorrow.getTime()) badge = `<span class="day-badge badge-tomorrow">غدًا</span>`;
+    else if(d.getTime() === tomorrow.getTime()) badge = `<span class="day-badge badge-tomorrow">غدا</span>`;
     return `
       <div class="day-row" data-iso="${iso}">
         <div class="day-main">
@@ -921,9 +977,32 @@ function wireNameList(containerId, meta, shiftMeta, key){
 }
 
 /* =========================================================
+   الوضع الليلي/النهاري
+========================================================= */
+function applyThemeIcon(){
+  const btn = document.getElementById("themeToggle");
+  if(!btn) return;
+  const isDark = document.documentElement.classList.contains("dark");
+  btn.textContent = isDark ? "☀️" : "🌙";
+}
+
+function initThemeToggle(){
+  applyThemeIcon();
+  document.getElementById("themeToggle").addEventListener("click", ()=>{
+    const html = document.documentElement;
+    html.classList.toggle("dark");
+    try{
+      localStorage.setItem("crt_theme", html.classList.contains("dark") ? "dark" : "light");
+    }catch(e){}
+    applyThemeIcon();
+  });
+}
+
+/* =========================================================
    تشغيل التطبيق
 ========================================================= */
 (async function init(){
+  initThemeToggle();
   await ensureCreatedDate();
   await renderHome();
 })();
