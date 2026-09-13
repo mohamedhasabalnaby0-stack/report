@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سجل تقارير الكاميرات</title>
+<style>
+  :root{
+    --paper: #EFEBDD;
+    --paper-card: #F8F5EC;
+    --rule: #AEB9CC;
+    --margin-red: #A73B3B;
+    --ink: #23283A;
+    --ink-faint: #6B7180;
+    --stamp-red: #A73B3B;
+    --stamp-green: #35563B;
+    --shadow: rgba(35,40,58,0.14);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    background-image:
+      linear-gradient(var(--paper) 0%, var(--paper) 100%),
+      repeating-linear-gradient(0deg, transparent, transparent 34px, rgba(174,185,204,0.35) 35px);
+    color:var(--ink);
+    font-family:"Tahoma","Segoe UI","Geeza Pro",Arial,sans-serif;
+    min-height:100vh;
+  }
+  .mono{ font-family:"Courier New", Courier, monospace; letter-spacing:0.5px; }
+
+  /* ===== shell / ledger margin ===== */
+  .sheet{
+    max-width:760px;
+    margin:0 auto;
+    min-height:100vh;
+    background:var(--paper-card);
+    box-shadow:0 0 0 1px var(--rule), 0 10px 30px var(--shadow);
+    position:relative;
+    padding:28px 22px 60px 22px;
+    border-right:5px solid var(--margin-red);
+  }
+  @media (max-width:480px){
+    .sheet{ padding:20px 14px 50px 14px; border-right-width:4px; }
+  }
+
+  header.app-head{
+    text-align:center;
+    padding-bottom:16px;
+    margin-bottom:6px;
+    border-bottom:2px solid var(--ink);
+  }
+  header.app-head h1{
+    font-size:22px;
+    letter-spacing:1px;
+    margin:0 0 4px 0;
+    font-weight:700;
+  }
+  header.app-head p{
+    margin:0;
+    color:var(--ink-faint);
+    font-size:13px;
+  }
+
+  /* ===== loading / empty ===== */
+  .loading-msg{ text-align:center; padding:40px 0; color:var(--ink-faint); }
+
+  /* ===== home: day list ===== */
+  .day-list{ margin-top:10px; }
+  .day-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    padding:16px 4px;
+    border-bottom:1px dashed var(--rule);
+    cursor:pointer;
+    transition:background 0.15s ease;
+  }
+  .day-row:hover{ background:rgba(167,59,59,0.06); }
+  .day-row:active{ background:rgba(167,59,59,0.12); }
+  .day-main{ display:flex; align-items:center; gap:10px; }
+  .day-name{ font-size:17px; font-weight:700; }
+  .day-badge{
+    font-size:11px;
+    padding:2px 9px;
+    border-radius:3px;
+    transform:rotate(-4deg);
+    font-weight:700;
+    border:1.5px solid currentColor;
+    display:inline-block;
+  }
+  .badge-today{ color:var(--stamp-red); }
+  .badge-tomorrow{ color:var(--stamp-green); }
+  .day-date{
+    font-size:14px;
+    color:var(--ink-faint);
+    white-space:nowrap;
+  }
+  .day-count{
+    font-size:11px;
+    color:var(--ink-faint);
+    margin-top:3px;
+  }
+  .day-right{ text-align:left; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+
+  /* ===== report page ===== */
+  .back-btn{
+    background:none; border:none; cursor:pointer;
+    color:var(--ink); font-size:14px; font-family:inherit;
+    display:flex; align-items:center; gap:6px;
+    padding:8px 2px; margin-bottom:6px;
+  }
+  .back-btn:hover{ color:var(--stamp-red); }
+
+  .report-title{
+    text-align:center;
+    margin:6px 0 22px 0;
+  }
+  .report-title .rt-day{ font-size:20px; font-weight:700; }
+  .report-title .rt-date{ font-size:13px; color:var(--ink-faint); margin-top:2px; }
+
+  /* ===== shift sections ===== */
+  .shift-section{ margin-bottom:6px; }
+  .shift-section + .shift-section{
+    margin-top:34px;
+    padding-top:26px;
+    border-top:3px double var(--ink);
+  }
+
+  table.log-table{
+    width:100%;
+    border-collapse:collapse;
+    background:transparent;
+  }
+  table.log-table thead th{
+    border-bottom:2px solid var(--ink);
+    padding:8px 6px;
+    font-size:13px;
+    text-align:center;
+    font-weight:700;
+  }
+  th.col-num{ width:34px; }
+  th.col-camera{ width:20%; }
+  th.col-time{ width:132px; }
+  table.log-table tbody td{
+    border-bottom:1px dashed var(--rule);
+    padding:0;
+    vertical-align:middle;
+  }
+  td.col-num{
+    text-align:center;
+    font-size:12px;
+    color:var(--ink-faint);
+    padding:10px 2px;
+  }
+  table.log-table input{
+    width:100%;
+    border:none;
+    background:transparent;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--ink);
+    padding:10px 8px;
+    outline:none;
+  }
+  table.log-table input.camera-input{
+    text-align:center;
+    border-left:1px dashed var(--rule);
+  }
+  table.log-table input:focus{
+    background:rgba(167,59,59,0.06);
+  }
+  td.col-time{
+    border-left:1px dashed var(--rule);
+    padding:6px 6px !important;
+  }
+  .time-cell{
+    display:flex;
+    align-items:center;
+    gap:4px;
+  }
+  .time-cell input.time-input{
+    width:100%;
+    min-width:0;
+    text-align:center;
+    padding:6px 4px;
+    border:none;
+    background:transparent;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--ink);
+    outline:none;
+  }
+  .time-cell select.ampm-select{
+    border:none;
+    background:rgba(53,86,59,0.08);
+    border-radius:3px;
+    font-family:inherit;
+    font-size:12px;
+    color:var(--ink);
+    padding:5px 3px;
+    outline:none;
+    cursor:pointer;
+    flex-shrink:0;
+  }
+  .row-del{
+    background:none;border:none;cursor:pointer;
+    color:var(--rule); font-size:14px; padding:6px;
+  }
+  .row-del:hover{ color:var(--stamp-red); }
+  td.col-del{ width:28px; text-align:center; }
+
+  .hint{
+    margin-top:14px;
+    font-size:12px;
+    color:var(--ink-faint);
+    text-align:center;
+  }
+
+  .add-shift-btn{
+    display:block;
+    width:100%;
+    margin:26px 0 6px 0;
+    padding:12px;
+    background:transparent;
+    border:1.5px dashed var(--stamp-green);
+    color:var(--stamp-green);
+    font-family:inherit;
+    font-size:13.5px;
+    font-weight:700;
+    border-radius:5px;
+    cursor:pointer;
+    transition:background 0.15s ease;
+  }
+  .add-shift-btn:hover{ background:rgba(53,86,59,0.08); }
+
+  /* ===== status / sign-off section ===== */
+  .status-section{
+    margin-top:26px;
+    padding-top:18px;
+    border-top:2px solid var(--ink);
+  }
+  .status-check{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    cursor:pointer;
+    padding:6px 2px 16px 2px;
+    font-size:14.5px;
+    font-weight:600;
+    line-height:1.5;
+  }
+  .status-check input[type="checkbox"]{
+    width:19px; height:19px;
+    accent-color:var(--stamp-green);
+    margin-top:2px;
+    flex-shrink:0;
+    cursor:pointer;
+  }
+  .fault-field{ margin-bottom:18px; }
+  .field-label{
+    display:block;
+    font-size:12.5px;
+    font-weight:700;
+    color:var(--ink-faint);
+    margin-bottom:6px;
+  }
+  .fault-field textarea{
+    width:100%;
+    min-height:70px;
+    resize:vertical;
+    border:1px dashed var(--margin-red);
+    background:rgba(167,59,59,0.05);
+    border-radius:3px;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--ink);
+    padding:10px;
+    outline:none;
+  }
+  .fault-field textarea:focus{ background:rgba(167,59,59,0.09); }
+
+  .field-block{ margin-bottom:18px; }
+  .name-list{ display:flex; flex-direction:column; gap:8px; }
+
+  .name-line{ display:flex; align-items:center; gap:8px; }
+  .name-line input[type="text"]{
+    flex:1;
+    border:none;
+    border-bottom:1px solid var(--rule);
+    background:transparent;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--ink);
+    padding:6px 2px;
+    outline:none;
+  }
+  .name-line input[type="text"]:focus{ border-bottom-color:var(--stamp-red); }
+
+  .editor-line{ display:flex; align-items:center; gap:8px; }
+  .editor-line .editor-name-input{
+    flex:2;
+    border:none;
+    border-bottom:1px solid var(--rule);
+    background:transparent;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--ink);
+    padding:6px 2px;
+    outline:none;
+  }
+  .editor-line .editor-name-input:focus{ border-bottom-color:var(--stamp-red); }
+  .editor-line .editor-shift-select{
+    flex:1;
+    min-width:130px;
+    border:none;
+    border-bottom:1px solid var(--rule);
+    background:transparent;
+    font-family:inherit;
+    font-size:12.5px;
+    color:var(--ink);
+    padding:6px 2px;
+    outline:none;
+    cursor:pointer;
+  }
+  .editor-line .editor-shift-select:focus{ border-bottom-color:var(--stamp-red); }
+
+  .name-del{
+    background:none;border:none;cursor:pointer;
+    color:var(--rule); font-size:13px; padding:4px;
+    flex-shrink:0;
+  }
+  .name-del:hover{ color:var(--stamp-red); }
+  .name-hint{
+    font-size:11px;
+    color:var(--ink-faint);
+    margin-top:4px;
+  }
+
+  .save-flag{
+    position:fixed;
+    bottom:14px;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--ink);
+    color:var(--paper-card);
+    font-size:12px;
+    padding:6px 14px;
+    border-radius:4px;
+    opacity:0;
+    transition:opacity 0.25s ease;
+    pointer-events:none;
+    max-width:90%;
+    text-align:center;
+  }
+  .save-flag.show{ opacity:0.92; }
+  .save-flag.warn{ background:var(--margin-red); }
+</style>
+</head>
+<body>
+  <div class="sheet" id="app">
+    <div class="loading-msg">جارِ التحميل…</div>
+  </div>
+  <div class="save-flag" id="saveFlag">تم الحفظ</div>
+
+<script>
+/* =========================================================
+   إعدادات عامة
+========================================================= */
+const AR_DAYS = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
+const SHIFT_NAMES = ["الوردية الأولى","الوردية الثانية","الوردية الثالثة","الوردية الرابعة","الوردية الخامسة"];
+
+// إعدادات Cloudinary (نسخة احتياطية سحابية لكل تقرير يومي)
+const CLOUDINARY_CLOUD_NAME = "d3lngniy";
+const CLOUDINARY_UPLOAD_PRESET = "Violation database";
+const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
+
+/* =========================================================
+   أدوات التاريخ
+========================================================= */
+function pad(n){ return n.toString().padStart(2,"0"); }
+function isoOf(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function addDays(d, n){ const c = new Date(d); c.setDate(c.getDate()+n); return c; }
+function startOfToday(){ const d = new Date(); d.setHours(0,0,0,0); return d; }
+function formatDate(d){ return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()}`; }
+function dayName(d){ return AR_DAYS[d.getDay()]; }
+function shiftLabel(n){ return (n>=1 && n<=SHIFT_NAMES.length) ? SHIFT_NAMES[n-1] : `الوردية رقم ${n}`; }
+
+let state = { view:"home", currentIso:null, createdIso:null };
+
+/* =========================================================
+   طبقة التخزين المحلي (localStorage)
+   ملاحظة: هذا التخزين خاص بكل جهاز/متصفح على حدة.
+   النسخة الاحتياطية المشتركة تتم عبر Cloudinary أدناه.
+========================================================= */
+async function storageGet(key){
+  try{
+    return localStorage.getItem(key);
+  }catch(e){ console.warn("storage get failed", e); return null; }
+}
+async function storageSet(key, value){
+  try{
+    localStorage.setItem(key, value);
+    return true;
+  }catch(e){ console.error("storage set failed", e); return false; }
+}
+
+/* =========================================================
+   تنبيه الحفظ
+========================================================= */
+function flashSaved(text="تم الحفظ", warn=false){
+  const f = document.getElementById("saveFlag");
+  f.textContent = text;
+  f.classList.toggle("warn", warn);
+  f.classList.add("show");
+  clearTimeout(flashSaved._t);
+  flashSaved._t = setTimeout(()=>f.classList.remove("show"), 1600);
+}
+
+/* =========================================================
+   النسخ الاحتياطي على Cloudinary
+========================================================= */
+async function backupToCloudinary(iso){
+  try{
+    const meta = await loadMeta(iso);
+    const shiftsCount = meta.shiftsCount || 1;
+    const shifts = [];
+    for(let s=1; s<=shiftsCount; s++){
+      const rows = await loadRows(iso, s);
+      shifts.push({ shiftIndex:s, shiftName: shiftLabel(s), rows });
+    }
+    const payload = JSON.stringify({ date: iso, shifts, meta, savedAt: new Date().toISOString() }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const form = new FormData();
+    form.append("file", blob, `${iso}.json`);
+    form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    form.append("public_id", `violation_reports/${iso}`);
+
+    const res = await fetch(CLOUDINARY_UPLOAD_URL, { method:"POST", body:form });
+    if(!res.ok){
+      const errText = await res.text().catch(()=>"");
+      console.warn("Cloudinary backup failed:", res.status, errText);
+      flashSaved("تم الحفظ محليًا، تعذّر الرفع لـ Cloudinary", true);
+      return;
+    }
+    flashSaved("تم الحفظ محليًا والرفع إلى Cloudinary ☁");
+  }catch(e){
+    console.warn("Cloudinary backup error:", e);
+    flashSaved("تم الحفظ محليًا، تعذّر الاتصال بـ Cloudinary", true);
+  }
+}
+
+/* =========================================================
+   إعداد اليوم الأول + قائمة الأيام
+========================================================= */
+async function ensureCreatedDate(){
+  let iso = await storageGet("meta:created_date");
+  if(!iso){
+    iso = isoOf(startOfToday());
+    await storageSet("meta:created_date", iso);
+  }
+  state.createdIso = iso;
+}
+
+function buildDayList(){
+  const created = new Date(state.createdIso + "T00:00:00");
+  const today = startOfToday();
+  const tomorrow = addDays(today, 1);
+  const days = [];
+  let cursor = new Date(created);
+  while(cursor.getTime() <= tomorrow.getTime()){
+    days.push(new Date(cursor));
+    cursor = addDays(cursor, 1);
+  }
+  return days.reverse(); // الأحدث (غدًا) أولًا
+}
+
+async function countEventsForDay(iso){
+  const meta = await loadMeta(iso);
+  let count = 0;
+  for(let s=1; s<=(meta.shiftsCount||1); s++){
+    const rows = await loadRows(iso, s);
+    count += rows.filter(r => (r.camera||"").trim() || (r.event||"").trim() || (r.time||"").trim()).length;
+  }
+  return count;
+}
+
+/* =========================================================
+   الصفحة الرئيسية
+========================================================= */
+async function renderHome(){
+  const app = document.getElementById("app");
+  app.innerHTML = `<div class="loading-msg">جارِ التحميل…</div>`;
+  const days = buildDayList();
+  const today = startOfToday();
+  const tomorrow = addDays(today,1);
+
+  const rowsHtml = await Promise.all(days.map(async d=>{
+    const iso = isoOf(d);
+    const count = await countEventsForDay(iso);
+    let badge = "";
+    if(d.getTime() === today.getTime()) badge = `<span class="day-badge badge-today">اليوم</span>`;
+    else if(d.getTime() === tomorrow.getTime()) badge = `<span class="day-badge badge-tomorrow">غدًا</span>`;
+    return `
+      <div class="day-row" data-iso="${iso}">
+        <div class="day-main">
+          <span class="day-name">${dayName(d)}</span>
+          ${badge}
+        </div>
+        <div class="day-right">
+          <span class="day-date mono">${formatDate(d)}</span>
+          <span class="day-count">${count ? count + " حدث مسجّل" : "لا يوجد سجل بعد"}</span>
+        </div>
+      </div>`;
+  }));
+
+  app.innerHTML = `
+    <header class="app-head">
+      <h1>سجل تقارير الكاميرات</h1>
+      <p>اختر اليوم لفتح تقريره</p>
+    </header>
+    <div class="day-list">${rowsHtml.join("")}</div>
+  `;
+
+  app.querySelectorAll(".day-row").forEach(el=>{
+    el.addEventListener("click", ()=> openReport(el.dataset.iso));
+  });
+}
+
+async function openReport(iso){
+  state.view = "report";
+  state.currentIso = iso;
+  await renderReport();
+}
+
+/* =========================================================
+   صفوف الأحداث (الكاميرا / الوقت / الحدث) لكل وردية
+========================================================= */
+function emptyRow(){ return { camera:"", time:"", ampm:"AM", event:"" }; }
+
+function normalizeRow(r){
+  return { camera:r.camera||"", time:r.time||"", ampm:(r.ampm==="PM"?"PM":"AM"), event:r.event||"" };
+}
+
+async function loadRows(iso, shiftIndex){
+  const raw = await storageGet(`rows:${iso}:${shiftIndex}`);
+  if(!raw){
+    return [emptyRow()];
+  }
+  try{
+    const parsed = JSON.parse(raw);
+    return parsed.length ? parsed.map(normalizeRow) : [emptyRow()];
+  }catch(e){ return [emptyRow()]; }
+}
+
+async function saveRows(iso, shiftIndex, rows){
+  await storageSet(`rows:${iso}:${shiftIndex}`, JSON.stringify(rows));
+  flashSaved("تم الحفظ محليًا…");
+  backupToCloudinary(iso);
+}
+
+/* =========================================================
+   بيانات كل بلوك (وردية): الجدول + الحالة + محررو التقرير + التوقيعات
+   كل بلوك مستقل بالكامل عن غيره، ولا يحمل أي اسم/رقم وردية ظاهر.
+========================================================= */
+function defaultShiftMeta(){
+  return {
+    allGood:false,
+    fault:"",
+    editors:[""],
+    signatures:[""]
+  };
+}
+
+function normalizeShiftMeta(sm){
+  const base = defaultShiftMeta();
+  if(!sm || typeof sm !== "object") return base;
+  const out = Object.assign({}, base, sm);
+  if(!Array.isArray(out.editors) || out.editors.length === 0){
+    out.editors = [""];
+  }
+  // ترحيل صيغة قديمة لمحررين كانت على شكل { name, shift }
+  out.editors = out.editors.map(e => typeof e === "string" ? e : ((e && e.name) || ""));
+  if(!Array.isArray(out.signatures) || out.signatures.length === 0){
+    out.signatures = [""];
+  }
+  return out;
+}
+
+function defaultMeta(){
+  return {
+    shiftsCount:1,
+    shifts:{ 1: defaultShiftMeta() }
+  };
+}
+
+async function loadMeta(iso){
+  const raw = await storageGet("meta:report:"+iso);
+  const meta = defaultMeta();
+  if(raw){
+    try{
+      const parsed = JSON.parse(raw);
+      if(parsed && typeof parsed === "object"){
+        meta.shiftsCount = (parsed.shiftsCount && parsed.shiftsCount >= 1) ? parsed.shiftsCount : 1;
+
+        if(parsed.shifts && typeof parsed.shifts === "object"){
+          meta.shifts = {};
+          for(let s=1; s<=meta.shiftsCount; s++){
+            meta.shifts[s] = normalizeShiftMeta(parsed.shifts[s]);
+          }
+        }else{
+          // ترحيل الصيغة القديمة (حالة/محررون/توقيعات موحّدة لكل التقرير بأكمله)
+          const migrated = normalizeShiftMeta({
+            allGood: parsed.allGood,
+            fault: parsed.fault,
+            editors: parsed.editors,
+            signatures: parsed.signatures
+          });
+          meta.shifts = {};
+          for(let s=1; s<=meta.shiftsCount; s++){
+            meta.shifts[s] = (s===1) ? migrated : defaultShiftMeta();
+          }
+        }
+      }
+    }catch(e){ /* استخدام القيم الافتراضية عند فشل القراءة */ }
+  }
+  for(let s=1; s<=meta.shiftsCount; s++){
+    if(!meta.shifts[s]) meta.shifts[s] = defaultShiftMeta();
+  }
+  return meta;
+}
+
+async function saveMeta(iso, meta){
+  await storageSet("meta:report:"+iso, JSON.stringify(meta));
+  flashSaved("تم الحفظ محليًا…");
+  backupToCloudinary(iso);
+}
+
+let metaSaveTimer = null;
+function scheduleMetaSave(meta){
+  clearTimeout(metaSaveTimer);
+  metaSaveTimer = setTimeout(()=> saveMeta(state.currentIso, meta), 400);
+}
+
+/* =========================================================
+   صفحة التقرير
+========================================================= */
+function buildShiftSectionHtml(shiftIndex, rows, shiftMeta){
+  return `
+    <div class="shift-section" data-shift="${shiftIndex}">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th class="col-num">م</th>
+            <th class="col-camera">الكاميرا</th>
+            <th class="col-time">الوقت</th>
+            <th class="col-event">الحدث</th>
+            <th class="col-del"></th>
+          </tr>
+        </thead>
+        <tbody id="rowsBody-${shiftIndex}">${rowsBodyHtml(rows)}</tbody>
+      </table>
+      <div class="hint">اضغط Enter بعد كتابة الحدث لإضافة سطر جديد</div>
+
+      <div class="status-section">
+        <label class="status-check">
+          <input type="checkbox" id="allGoodCheck-${shiftIndex}" ${shiftMeta.allGood ? "checked" : ""}>
+          <span>جميع الكاميرات تعمل بشكل جيد ولا يوجد أعطال</span>
+        </label>
+
+        <div class="fault-field" id="faultField-${shiftIndex}" style="${shiftMeta.allGood ? "display:none;" : ""}">
+          <span class="field-label">العطل</span>
+          <textarea id="faultInput-${shiftIndex}" placeholder="اكتب وصف العطل هنا">${escapeHtml(shiftMeta.fault)}</textarea>
+        </div>
+
+        <div class="field-block">
+          <span class="field-label">محرر التقرير</span>
+          <div class="name-list" id="editorList-${shiftIndex}"></div>
+          <div class="name-hint">Enter لإضافة محرر آخر</div>
+        </div>
+
+        <div class="field-block">
+          <span class="field-label">توقيع المستلم</span>
+          <div class="name-list" id="signatureList-${shiftIndex}"></div>
+          <div class="name-hint">Enter لإضافة مستلم آخر</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function rowsBodyHtml(rows){
+  return rows.map((r,i)=>`
+    <tr data-idx="${i}">
+      <td class="col-num">${i+1}</td>
+      <td><input class="camera-input" data-field="camera" data-idx="${i}" value="${escapeHtml(r.camera)}" placeholder="رقم/اسم"></td>
+      <td class="col-time">
+        <div class="time-cell">
+          <input type="text" class="time-input" data-field="time" data-idx="${i}" value="${escapeHtml(r.time)}" placeholder="09:30" maxlength="5">
+          <select class="ampm-select" data-field="ampm" data-idx="${i}">
+            <option value="AM" ${r.ampm==="PM" ? "" : "selected"}>AM</option>
+            <option value="PM" ${r.ampm==="PM" ? "selected" : ""}>PM</option>
+          </select>
+        </div>
+      </td>
+      <td><input class="event-input" data-field="event" data-idx="${i}" value="${escapeHtml(r.event)}" placeholder="وصف الحدث"></td>
+      <td class="col-del">${rows.length>1 ? `<button class="row-del" data-idx="${i}" title="حذف السطر">✕</button>` : ""}</td>
+    </tr>
+  `).join("");
+}
+
+async function renderReport(){
+  const app = document.getElementById("app");
+  const iso = state.currentIso;
+  const d = new Date(iso + "T00:00:00");
+  const meta = await loadMeta(iso);
+  const shiftsCount = meta.shiftsCount || 1;
+
+  let shiftsHtml = "";
+  for(let s=1; s<=shiftsCount; s++){
+    const rows = await loadRows(iso, s);
+    shiftsHtml += buildShiftSectionHtml(s, rows, meta.shifts[s]);
+  }
+
+  app.innerHTML = `
+    <button class="back-btn" id="backBtn">رجوع ←</button>
+    <div class="report-title">
+      <div class="rt-day">${dayName(d)}</div>
+      <div class="rt-date mono">${formatDate(d)}</div>
+    </div>
+
+    <div id="shiftsContainer">${shiftsHtml}</div>
+    <button class="add-shift-btn" id="addShiftBtn">+ إضافة وردية</button>
+  `;
+
+  document.getElementById("backBtn").addEventListener("click", ()=>{
+    state.view = "home";
+    renderHome();
+  });
+
+  for(let s=1; s<=shiftsCount; s++){
+    wireRowsBody(s);
+    wireShiftStatus(s, meta, meta.shifts[s]);
+  }
+  document.getElementById("addShiftBtn").addEventListener("click", onAddShift);
+}
+
+async function onAddShift(){
+  const iso = state.currentIso;
+  const meta = await loadMeta(iso);
+  meta.shiftsCount = (meta.shiftsCount || 1) + 1;
+  meta.shifts[meta.shiftsCount] = defaultShiftMeta();
+  await saveMeta(iso, meta);
+  await renderReport();
+}
+
+/* ---------- ربط جدول صفوف وردية معيّنة ---------- */
+const saveTimers = {};
+
+function wireRowsBody(shiftIndex){
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  body.querySelectorAll("input").forEach(inp=>{
+    inp.addEventListener("input", ()=> scheduleSave(shiftIndex));
+    inp.addEventListener("keydown", (e)=> onFieldKeydown(e, shiftIndex));
+  });
+  body.querySelectorAll("select.ampm-select").forEach(sel=>{
+    sel.addEventListener("change", ()=> scheduleSave(shiftIndex));
+  });
+  body.querySelectorAll(".row-del").forEach(btn=>{
+    btn.addEventListener("click", (e)=> onDeleteRow(e, shiftIndex));
+  });
+}
+
+async function currentRowsFromDom(shiftIndex){
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  const els = body.querySelectorAll("input, select");
+  const map = {};
+  els.forEach(el=>{
+    const idx = el.dataset.idx;
+    map[idx] = map[idx] || emptyRow();
+    map[idx][el.dataset.field] = el.value;
+  });
+  return Object.keys(map).sort((a,b)=>a-b).map(k=>map[k]);
+}
+
+function scheduleSave(shiftIndex){
+  clearTimeout(saveTimers[shiftIndex]);
+  saveTimers[shiftIndex] = setTimeout(async ()=>{
+    const rows = await currentRowsFromDom(shiftIndex);
+    await saveRows(state.currentIso, shiftIndex, rows);
+  }, 400);
+}
+
+async function onFieldKeydown(e, shiftIndex){
+  if(e.key !== "Enter") return;
+  e.preventDefault();
+  const idx = parseInt(e.target.dataset.idx, 10);
+  const field = e.target.dataset.field;
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  const rows = await currentRowsFromDom(shiftIndex);
+
+  if(field === "camera"){
+    const t = body.querySelector(`.time-input[data-idx="${idx}"]`);
+    if(t) t.focus();
+    return;
+  }
+  if(field === "time"){
+    const ev = body.querySelector(`.event-input[data-idx="${idx}"]`);
+    if(ev) ev.focus();
+    return;
+  }
+
+  // field === "event"
+  if(idx === rows.length - 1){
+    rows.push(emptyRow());
+    await saveRows(state.currentIso, shiftIndex, rows);
+    // إعادة رسم صفوف هذه الوردية فقط
+    body.innerHTML = rowsBodyHtml(rows);
+    wireRowsBody(shiftIndex);
+    const newCam = body.querySelector(`.camera-input[data-idx="${rows.length-1}"]`);
+    if(newCam) newCam.focus();
+  }else{
+    const nextCam = body.querySelector(`.camera-input[data-idx="${idx+1}"]`);
+    if(nextCam) nextCam.focus();
+  }
+}
+
+async function onDeleteRow(e, shiftIndex){
+  const idx = parseInt(e.currentTarget.dataset.idx, 10);
+  let rows = await currentRowsFromDom(shiftIndex);
+  rows.splice(idx,1);
+  if(rows.length === 0) rows = [emptyRow()];
+  await saveRows(state.currentIso, shiftIndex, rows);
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  body.innerHTML = rowsBodyHtml(rows);
+  wireRowsBody(shiftIndex);
+}
+
+/* ---------- قسم الحالة + محررو التقرير + التوقيعات (لكل بلوك/وردية على حدة) ---------- */
+function escapeHtml(s){
+  return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function wireShiftStatus(shiftIndex, meta, shiftMeta){
+  const allGoodCheck = document.getElementById(`allGoodCheck-${shiftIndex}`);
+  const faultField = document.getElementById(`faultField-${shiftIndex}`);
+  const faultInput = document.getElementById(`faultInput-${shiftIndex}`);
+
+  allGoodCheck.addEventListener("change", ()=>{
+    shiftMeta.allGood = allGoodCheck.checked;
+    faultField.style.display = shiftMeta.allGood ? "none" : "";
+    if(shiftMeta.allGood) faultInput.value = "";
+    shiftMeta.fault = faultInput.value;
+    scheduleMetaSave(meta);
+  });
+
+  faultInput.addEventListener("input", ()=>{
+    shiftMeta.fault = faultInput.value;
+    scheduleMetaSave(meta);
+  });
+
+  const editorListId = `editorList-${shiftIndex}`;
+  renderNameList(editorListId, shiftMeta.editors);
+  wireNameList(editorListId, meta, shiftMeta, "editors");
+
+  const signatureListId = `signatureList-${shiftIndex}`;
+  renderNameList(signatureListId, shiftMeta.signatures);
+  wireNameList(signatureListId, meta, shiftMeta, "signatures");
+}
+
+/* ---- قائمة أسماء بسيطة (تُستخدم لمحرري التقرير وتوقيعات المستلم) ---- */
+function renderNameList(containerId, list){
+  const box = document.getElementById(containerId);
+  box.innerHTML = list.map((val,i)=>`
+    <div class="name-line" data-idx="${i}">
+      <input type="text" class="name-input" data-idx="${i}" value="${escapeHtml(val)}" placeholder="الاسم">
+      ${list.length>1 ? `<button class="name-del" data-idx="${i}">✕</button>` : ""}
+    </div>
+  `).join("");
+}
+
+function wireNameList(containerId, meta, shiftMeta, key){
+  const box = document.getElementById(containerId);
+  const inputs = ()=> Array.from(box.querySelectorAll(".name-input"));
+
+  box.querySelectorAll(".name-input").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      shiftMeta[key][idx] = inp.value;
+      scheduleMetaSave(meta);
+    });
+    inp.addEventListener("keydown", (e)=>{
+      if(e.key !== "Enter") return;
+      e.preventDefault();
+      const idx = parseInt(inp.dataset.idx,10);
+      const all = inputs();
+      if(idx === all.length - 1){
+        shiftMeta[key].push("");
+        scheduleMetaSave(meta);
+        renderNameList(containerId, shiftMeta[key]);
+        wireNameList(containerId, meta, shiftMeta, key);
+        const newInputs = inputs();
+        newInputs[newInputs.length-1].focus();
+      }else{
+        all[idx+1].focus();
+      }
+    });
+  });
+
+  box.querySelectorAll(".name-del").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = parseInt(btn.dataset.idx,10);
+      shiftMeta[key].splice(idx,1);
+      if(shiftMeta[key].length === 0) shiftMeta[key] = [""];
+      scheduleMetaSave(meta);
+      renderNameList(containerId, shiftMeta[key]);
+      wireNameList(containerId, meta, shiftMeta, key);
+    });
+  });
+}
+
+/* =========================================================
+   تشغيل التطبيق
+========================================================= */
+(async function init(){
+  await ensureCreatedDate();
+  await renderHome();
+})();
+</script>
+</body>
+</html>
