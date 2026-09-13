@@ -12,6 +12,26 @@
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>سجل تقارير الكاميرات</title>
+
+<!-- ============================================================
+     Firebase: هنا بيتحط الإعدادات اللي بتاخدها من Firebase Console
+     Project settings → General → Your apps → SDK setup and configuration
+     ============================================================ -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCMxmjVVI6Iji8hvqPGhSHEzhEAmL9SBUY",
+    authDomain: "report-bc2d1.firebaseapp.com",
+    databaseURL: "https://report-bc2d1-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "report-bc2d1",
+    storageBucket: "report-bc2d1.firebasestorage.app",
+    messagingSenderId: "668235342854",
+    appId: "1:668235342854:web:a12ba8bfc3dd86bbe90f87"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+</script>
 <style>
   :root{
     --paper: #FFFFFF;
@@ -411,6 +431,7 @@
     transition:background 0.2s ease, border-color 0.2s ease;
   }
   .theme-toggle:hover{ border-color:var(--stamp-green); }
+
 </style>
 </head>
 <body>
@@ -427,11 +448,6 @@
 const AR_DAYS = ["الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"];
 const SHIFT_NAMES = ["الوردية الأولى","الوردية الثانية","الوردية الثالثة","الوردية الرابعة","الوردية الخامسة"];
 
-// إعدادات Cloudinary (نسخة احتياطية سحابية لكل تقرير يومي)
-const CLOUDINARY_CLOUD_NAME = "d3lngniy";
-const CLOUDINARY_UPLOAD_PRESET = "Violation database";
-const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/raw/upload`;
-
 /* =========================================================
    أدوات التاريخ
 ========================================================= */
@@ -446,18 +462,33 @@ function shiftLabel(n){ return (n>=1 && n<=SHIFT_NAMES.length) ? SHIFT_NAMES[n-1
 let state = { view:"home", currentIso:null, createdIso:null };
 
 /* =========================================================
-   طبقة التخزين المحلي (localStorage)
-   ملاحظة: هذا التخزين خاص بكل جهاز/متصفح على حدة.
-   النسخة الاحتياطية المشتركة تتم عبر Cloudinary أدناه.
+   طبقة التخزين المشتركة (Firebase Firestore)
+   كل المستخدمين (الزملاء/المدير) بيشوفوا ويعدّلوا نفس البيانات،
+   لأن التخزين بقى على قاعدة بيانات سحابية مشتركة بدل localStorage.
+   بنستخدم مجموعة (collection) واحدة اسمها "kv"، وكل مفتاح (key)
+   بيتحول لاسم مستند (document id) فيها، بنفس شكل المفاتيح القديمة.
 ========================================================= */
+const KV_COLLECTION = "kv";
+
+// Firestore document IDs مينفعش فيها "/" فبنستبدلها برمز آمن
+function safeDocId(key){
+  return key.replace(/\//g, "__slash__");
+}
+
 async function storageGet(key){
   try{
-    return localStorage.getItem(key);
+    const doc = await db.collection(KV_COLLECTION).doc(safeDocId(key)).get();
+    if(!doc.exists) return null;
+    const data = doc.data();
+    return (data && typeof data.value === "string") ? data.value : null;
   }catch(e){ console.warn("storage get failed", e); return null; }
 }
 async function storageSet(key, value){
   try{
-    localStorage.setItem(key, value);
+    await db.collection(KV_COLLECTION).doc(safeDocId(key)).set({
+      value: value,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
     return true;
   }catch(e){ console.error("storage set failed", e); return false; }
 }
@@ -472,39 +503,6 @@ function flashSaved(text="تم الحفظ", warn=false){
   f.classList.add("show");
   clearTimeout(flashSaved._t);
   flashSaved._t = setTimeout(()=>f.classList.remove("show"), 1600);
-}
-
-/* =========================================================
-   النسخ الاحتياطي على Cloudinary
-========================================================= */
-async function backupToCloudinary(iso){
-  try{
-    const meta = await loadMeta(iso);
-    const shiftsCount = meta.shiftsCount || 1;
-    const shifts = [];
-    for(let s=1; s<=shiftsCount; s++){
-      const rows = await loadRows(iso, s);
-      shifts.push({ shiftIndex:s, shiftName: shiftLabel(s), rows });
-    }
-    const payload = JSON.stringify({ date: iso, shifts, meta, savedAt: new Date().toISOString() }, null, 2);
-    const blob = new Blob([payload], { type: "application/json" });
-    const form = new FormData();
-    form.append("file", blob, `${iso}.json`);
-    form.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-    form.append("public_id", `violation_reports/${iso}`);
-
-    const res = await fetch(CLOUDINARY_UPLOAD_URL, { method:"POST", body:form });
-    if(!res.ok){
-      const errText = await res.text().catch(()=>"");
-      console.warn("Cloudinary backup failed:", res.status, errText);
-      flashSaved("تم الحفظ محليًا، تعذّر الرفع لـ Cloudinary", true);
-      return;
-    }
-    flashSaved("تم الحفظ محليًا والرفع إلى Cloudinary ☁");
-  }catch(e){
-    console.warn("Cloudinary backup error:", e);
-    flashSaved("تم الحفظ محليًا، تعذّر الاتصال بـ Cloudinary", true);
-  }
 }
 
 /* =========================================================
@@ -611,33 +609,37 @@ async function loadRows(iso, shiftIndex){
 }
 
 async function saveRows(iso, shiftIndex, rows){
-  await storageSet(`rows:${iso}:${shiftIndex}`, JSON.stringify(rows));
-  flashSaved("تم الحفظ محليًا…");
-  backupToCloudinary(iso);
+  const ok = await storageSet(`rows:${iso}:${shiftIndex}`, JSON.stringify(rows));
+  flashSaved(ok ? "تم الحفظ ☁" : "تعذّر الحفظ، تحقق من الاتصال", !ok);
 }
 
 /* =========================================================
    بيانات كل بلوك (وردية): الجدول + الحالة + محررو التقرير + التوقيعات
    كل بلوك مستقل بالكامل عن غيره، ولا يحمل أي اسم/رقم وردية ظاهر.
 ========================================================= */
-function defaultShiftMeta(){
+function defaultShiftMeta(shiftIndex){
+  const s = shiftIndex || 1;
   return {
     allGood:false,
     fault:"",
-    editors:[""],
+    editors:[{ name:"", shift:s }],
     signatures:[""]
   };
 }
 
-function normalizeShiftMeta(sm){
-  const base = defaultShiftMeta();
+function normalizeShiftMeta(sm, fallbackShift){
+  const fb = fallbackShift || 1;
+  const base = defaultShiftMeta(fb);
   if(!sm || typeof sm !== "object") return base;
   const out = Object.assign({}, base, sm);
   if(!Array.isArray(out.editors) || out.editors.length === 0){
-    out.editors = [""];
+    out.editors = [{ name:"", shift:fb }];
   }
-  // ترحيل صيغة قديمة لمحررين كانت على شكل { name, shift }
-  out.editors = out.editors.map(e => typeof e === "string" ? e : ((e && e.name) || ""));
+  // دعم الصيغ القديمة لمحرري التقرير (نص بسيط بدون وردية)
+  out.editors = out.editors.map(e => {
+    if(typeof e === "string") return { name:e, shift:fb };
+    return { name:(e && e.name) || "", shift:(e && e.shift) || fb };
+  });
   if(!Array.isArray(out.signatures) || out.signatures.length === 0){
     out.signatures = [""];
   }
@@ -647,7 +649,7 @@ function normalizeShiftMeta(sm){
 function defaultMeta(){
   return {
     shiftsCount:1,
-    shifts:{ 1: defaultShiftMeta() }
+    shifts:{ 1: defaultShiftMeta(1) }
   };
 }
 
@@ -663,7 +665,7 @@ async function loadMeta(iso){
         if(parsed.shifts && typeof parsed.shifts === "object"){
           meta.shifts = {};
           for(let s=1; s<=meta.shiftsCount; s++){
-            meta.shifts[s] = normalizeShiftMeta(parsed.shifts[s]);
+            meta.shifts[s] = normalizeShiftMeta(parsed.shifts[s], s);
           }
         }else{
           // ترحيل الصيغة القديمة (حالة/محررون/توقيعات موحّدة لكل التقرير بأكمله)
@@ -672,25 +674,24 @@ async function loadMeta(iso){
             fault: parsed.fault,
             editors: parsed.editors,
             signatures: parsed.signatures
-          });
+          }, 1);
           meta.shifts = {};
           for(let s=1; s<=meta.shiftsCount; s++){
-            meta.shifts[s] = (s===1) ? migrated : defaultShiftMeta();
+            meta.shifts[s] = (s===1) ? migrated : defaultShiftMeta(s);
           }
         }
       }
     }catch(e){ /* استخدام القيم الافتراضية عند فشل القراءة */ }
   }
   for(let s=1; s<=meta.shiftsCount; s++){
-    if(!meta.shifts[s]) meta.shifts[s] = defaultShiftMeta();
+    if(!meta.shifts[s]) meta.shifts[s] = defaultShiftMeta(s);
   }
   return meta;
 }
 
 async function saveMeta(iso, meta){
-  await storageSet("meta:report:"+iso, JSON.stringify(meta));
-  flashSaved("تم الحفظ محليًا…");
-  backupToCloudinary(iso);
+  const ok = await storageSet("meta:report:"+iso, JSON.stringify(meta));
+  flashSaved(ok ? "تم الحفظ ☁" : "تعذّر الحفظ، تحقق من الاتصال", !ok);
 }
 
 let metaSaveTimer = null;
@@ -806,7 +807,7 @@ async function onAddShift(){
   const iso = state.currentIso;
   const meta = await loadMeta(iso);
   meta.shiftsCount = (meta.shiftsCount || 1) + 1;
-  meta.shifts[meta.shiftsCount] = defaultShiftMeta();
+  meta.shifts[meta.shiftsCount] = defaultShiftMeta(meta.shiftsCount);
   await saveMeta(iso, meta);
   await renderReport();
 }
@@ -917,15 +918,86 @@ function wireShiftStatus(shiftIndex, meta, shiftMeta){
   });
 
   const editorListId = `editorList-${shiftIndex}`;
-  renderNameList(editorListId, shiftMeta.editors);
-  wireNameList(editorListId, meta, shiftMeta, "editors");
+  renderEditorList(editorListId, shiftMeta.editors);
+  wireEditorList(editorListId, meta, shiftMeta);
 
   const signatureListId = `signatureList-${shiftIndex}`;
   renderNameList(signatureListId, shiftMeta.signatures);
   wireNameList(signatureListId, meta, shiftMeta, "signatures");
 }
 
-/* ---- قائمة أسماء بسيطة (تُستخدم لمحرري التقرير وتوقيعات المستلم) ---- */
+/* ---- محررو التقرير: اسم + دروب بوكس وردية (من الأولى إلى الخامسة) ---- */
+function editorShiftOptionsHtml(selected){
+  let html = "";
+  for(let i=1;i<=SHIFT_NAMES.length;i++){
+    html += `<option value="${i}" ${selected===i ? "selected" : ""}>${SHIFT_NAMES[i-1]}</option>`;
+  }
+  return html;
+}
+
+function renderEditorList(containerId, list){
+  const box = document.getElementById(containerId);
+  box.innerHTML = list.map((ed,i)=>`
+    <div class="editor-line" data-idx="${i}">
+      <input type="text" class="editor-name-input" data-idx="${i}" value="${escapeHtml(ed.name)}" placeholder="اسم المحرر">
+      <select class="editor-shift-select" data-idx="${i}">
+        ${editorShiftOptionsHtml(ed.shift)}
+      </select>
+      ${list.length>1 ? `<button class="name-del" data-idx="${i}">✕</button>` : ""}
+    </div>
+  `).join("");
+}
+
+function wireEditorList(containerId, meta, shiftMeta){
+  const box = document.getElementById(containerId);
+  const nameInputs = ()=> Array.from(box.querySelectorAll(".editor-name-input"));
+
+  box.querySelectorAll(".editor-name-input").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      shiftMeta.editors[idx].name = inp.value;
+      scheduleMetaSave(meta);
+    });
+    inp.addEventListener("keydown", (e)=>{
+      if(e.key !== "Enter") return;
+      e.preventDefault();
+      const idx = parseInt(inp.dataset.idx,10);
+      const all = nameInputs();
+      if(idx === all.length - 1){
+        const lastShift = shiftMeta.editors[idx].shift || 1;
+        shiftMeta.editors.push({ name:"", shift:lastShift });
+        scheduleMetaSave(meta);
+        renderEditorList(containerId, shiftMeta.editors);
+        wireEditorList(containerId, meta, shiftMeta);
+        const newAll = nameInputs();
+        newAll[newAll.length-1].focus();
+      }else{
+        all[idx+1].focus();
+      }
+    });
+  });
+
+  box.querySelectorAll(".editor-shift-select").forEach(sel=>{
+    sel.addEventListener("change", ()=>{
+      const idx = parseInt(sel.dataset.idx,10);
+      shiftMeta.editors[idx].shift = parseInt(sel.value,10);
+      scheduleMetaSave(meta);
+    });
+  });
+
+  box.querySelectorAll(".name-del").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = parseInt(btn.dataset.idx,10);
+      shiftMeta.editors.splice(idx,1);
+      if(shiftMeta.editors.length === 0) shiftMeta.editors = [{ name:"", shift:1 }];
+      scheduleMetaSave(meta);
+      renderEditorList(containerId, shiftMeta.editors);
+      wireEditorList(containerId, meta, shiftMeta);
+    });
+  });
+}
+
+/* ---- قائمة أسماء بسيطة (تُستخدم لتوقيع المستلم) ---- */
 function renderNameList(containerId, list){
   const box = document.getElementById(containerId);
   box.innerHTML = list.map((val,i)=>`
@@ -973,6 +1045,7 @@ function wireNameList(containerId, meta, shiftMeta, key){
       renderNameList(containerId, shiftMeta[key]);
       wireNameList(containerId, meta, shiftMeta, key);
     });
+
   });
 }
 
