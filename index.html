@@ -674,4 +674,453 @@ async function loadMeta(iso){
             fault: parsed.fault,
             editors: parsed.editors,
             signatures: parsed.signatures
-          }, 1
+          }, 1);
+          meta.shifts = {};
+          for(let s=1; s<=meta.shiftsCount; s++){
+            meta.shifts[s] = (s===1) ? migrated : defaultShiftMeta(s);
+          }
+        }
+      }
+    }catch(e){ /* استخدام القيم الافتراضية عند فشل القراءة */ }
+  }
+  for(let s=1; s<=meta.shiftsCount; s++){
+    if(!meta.shifts[s]) meta.shifts[s] = defaultShiftMeta(s);
+  }
+  return meta;
+}
+
+async function saveMeta(iso, meta){
+  const ok = await storageSet("meta:report:"+iso, JSON.stringify(meta));
+  flashSaved(ok ? "تم الحفظ ☁" : "تعذّر الحفظ، تحقق من الاتصال", !ok);
+}
+
+let metaSaveTimer = null;
+function scheduleMetaSave(meta){
+  clearTimeout(metaSaveTimer);
+  metaSaveTimer = setTimeout(()=> saveMeta(state.currentIso, meta), 400);
+}
+
+/* =========================================================
+   صفحة التقرير
+========================================================= */
+function buildShiftSectionHtml(shiftIndex, rows, shiftMeta){
+  return `
+    <div class="shift-section" data-shift="${shiftIndex}">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th class="col-num">م</th>
+            <th class="col-camera">الكاميرا</th>
+            <th class="col-time">الوقت</th>
+            <th class="col-event">الحدث</th>
+            <th class="col-del"></th>
+          </tr>
+        </thead>
+        <tbody id="rowsBody-${shiftIndex}">${rowsBodyHtml(rows)}</tbody>
+      </table>
+      <div class="hint">اضغط Enter بعد كتابة الحدث لإضافة سطر جديد</div>
+
+      <div class="status-section">
+        <label class="status-check">
+          <input type="checkbox" id="allGoodCheck-${shiftIndex}" ${shiftMeta.allGood ? "checked" : ""}>
+          <span>جميع الكاميرات تعمل بشكل جيد ولا يوجد أعطال</span>
+        </label>
+
+        <div class="fault-field" id="faultField-${shiftIndex}" style="${shiftMeta.allGood ? "display:none;" : ""}">
+          <span class="field-label">العطل</span>
+          <textarea id="faultInput-${shiftIndex}" placeholder="اكتب وصف العطل هنا">${escapeHtml(shiftMeta.fault)}</textarea>
+        </div>
+
+        <div class="field-block">
+          <span class="field-label">محرر التقرير</span>
+          <div class="name-list" id="editorList-${shiftIndex}"></div>
+          <div class="name-hint">Enter لإضافة محرر آخر</div>
+        </div>
+
+        <div class="field-block">
+          <span class="field-label">توقيع المستلم</span>
+          <div class="name-list" id="signatureList-${shiftIndex}"></div>
+          <div class="name-hint">Enter لإضافة مستلم آخر</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function rowsBodyHtml(rows){
+  return rows.map((r,i)=>`
+    <tr data-idx="${i}">
+      <td class="col-num">${i+1}</td>
+      <td><input class="camera-input" data-field="camera" data-idx="${i}" value="${escapeHtml(r.camera)}" placeholder="رقم/اسم" enterkeyhint="next"></td>
+      <td class="col-time">
+        <div class="time-cell">
+          <input type="text" class="time-input" data-field="time" data-idx="${i}" value="${escapeHtml(r.time)}" placeholder="09:30" maxlength="5" inputmode="numeric" enterkeyhint="next">
+          <select class="ampm-select" data-field="ampm" data-idx="${i}">
+            <option value="AM" ${r.ampm==="PM" ? "" : "selected"}>AM</option>
+            <option value="PM" ${r.ampm==="PM" ? "selected" : ""}>PM</option>
+          </select>
+        </div>
+      </td>
+      <td><input class="event-input" data-field="event" data-idx="${i}" value="${escapeHtml(r.event)}" placeholder="وصف الحدث" enterkeyhint="next"></td>
+      <td class="col-del">${rows.length>1 ? `<button class="row-del" data-idx="${i}" title="حذف السطر">✕</button>` : ""}</td>
+    </tr>
+  `).join("");
+}
+
+async function renderReport(){
+  const app = document.getElementById("app");
+  const iso = state.currentIso;
+  const d = new Date(iso + "T00:00:00");
+  const meta = await loadMeta(iso);
+  const shiftsCount = meta.shiftsCount || 1;
+
+  let shiftsHtml = "";
+  for(let s=1; s<=shiftsCount; s++){
+    const rows = await loadRows(iso, s);
+    shiftsHtml += buildShiftSectionHtml(s, rows, meta.shifts[s]);
+  }
+
+  app.innerHTML = `
+    <button class="back-btn" id="backBtn">رجوع ←</button>
+    <div class="report-title">
+      <div class="rt-day">${dayName(d)}</div>
+      <div class="rt-date mono">${formatDate(d)}</div>
+    </div>
+
+    <div id="shiftsContainer">${shiftsHtml}</div>
+    <button class="add-shift-btn" id="addShiftBtn">+ إضافة وردية</button>
+  `;
+
+  document.getElementById("backBtn").addEventListener("click", ()=>{
+    state.view = "home";
+    renderHome();
+  });
+
+  for(let s=1; s<=shiftsCount; s++){
+    wireRowsBody(s);
+    wireShiftStatus(s, meta, meta.shifts[s]);
+  }
+  document.getElementById("addShiftBtn").addEventListener("click", onAddShift);
+}
+
+async function onAddShift(){
+  const iso = state.currentIso;
+  const meta = await loadMeta(iso);
+  meta.shiftsCount = (meta.shiftsCount || 1) + 1;
+  meta.shifts[meta.shiftsCount] = defaultShiftMeta(meta.shiftsCount);
+  await saveMeta(iso, meta);
+  await renderReport();
+}
+
+/* ---------- ربط زر Enter بشكل يعمل على الموبايل أيضًا ----------
+   لوحات مفاتيح موبايل كتير مش بتطلق حدث keydown حقيقي عند الضغط
+   على Enter، وبعضها كمان بيتجاهل preventDefault على beforeinput
+   ويضيف سطر جديد \n فعليًا جوه الحقل. فبنغطي 3 طبقات مع بعض:
+   1) keydown عادي (كمبيوتر ومعظم الموبايلات)
+   2) beforeinput نوع insertLineBreak (موبايلات تانية)
+   3) لو أي سطر جديد \n وصل فعليًا لقيمة الحقل رغم المحاولتين فوق،
+      بنلقطه من حدث input ونشيله ونعتبره كأنه Enter. */
+function bindEnterKey(inp, handler){
+  let lastHandledAt = 0;
+  const run = ()=>{
+    lastHandledAt = Date.now();
+    handler();
+  };
+  inp.addEventListener("keydown", (e)=>{
+    if(e.key !== "Enter" || e.isComposing) return;
+    e.preventDefault();
+    run();
+  });
+  inp.addEventListener("beforeinput", (e)=>{
+    if(e.inputType !== "insertLineBreak" && e.inputType !== "insertParagraph") return;
+    e.preventDefault();
+    run();
+  });
+  inp.addEventListener("input", ()=>{
+    if(!inp.value.includes("\n")) return;
+    inp.value = inp.value.replace(/\n/g, "");
+    if(Date.now() - lastHandledAt < 300) return; // تم التعامل معه بالفعل فوق
+    run();
+  });
+}
+
+/* ---------- تنسيق حقل الوقت تلقائيًا (يضيف ":" بين الساعة والدقيقة) ---------- */
+function formatTimeInputValue(inp){
+  const digits = inp.value.replace(/\D/g, "").slice(0,4);
+  const formatted = digits.length <= 2 ? digits : digits.slice(0,2) + ":" + digits.slice(2);
+  if(inp.value !== formatted){
+    inp.value = formatted;
+    inp.setSelectionRange(formatted.length, formatted.length);
+  }
+}
+
+const saveTimers = {};
+
+function wireRowsBody(shiftIndex){
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  body.querySelectorAll("input").forEach(inp=>{
+    if(inp.classList.contains("time-input")){
+      inp.addEventListener("input", ()=>{
+        formatTimeInputValue(inp);
+        scheduleSave(shiftIndex);
+      });
+    }else{
+      inp.addEventListener("input", ()=> scheduleSave(shiftIndex));
+    }
+    bindEnterKey(inp, ()=> onFieldEnter(inp, shiftIndex));
+  });
+  body.querySelectorAll("select.ampm-select").forEach(sel=>{
+    sel.addEventListener("change", ()=> scheduleSave(shiftIndex));
+  });
+  body.querySelectorAll(".row-del").forEach(btn=>{
+    btn.addEventListener("click", (e)=> onDeleteRow(e, shiftIndex));
+  });
+}
+
+async function currentRowsFromDom(shiftIndex){
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  const els = body.querySelectorAll("input, select");
+  const map = {};
+  els.forEach(el=>{
+    const idx = el.dataset.idx;
+    map[idx] = map[idx] || emptyRow();
+    map[idx][el.dataset.field] = el.value;
+  });
+  return Object.keys(map).sort((a,b)=>a-b).map(k=>map[k]);
+}
+
+function scheduleSave(shiftIndex){
+  clearTimeout(saveTimers[shiftIndex]);
+  saveTimers[shiftIndex] = setTimeout(async ()=>{
+    const rows = await currentRowsFromDom(shiftIndex);
+    await saveRows(state.currentIso, shiftIndex, rows);
+  }, 400);
+}
+
+async function onFieldEnter(target, shiftIndex){
+  const idx = parseInt(target.dataset.idx, 10);
+  const field = target.dataset.field;
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  const rows = await currentRowsFromDom(shiftIndex);
+
+  if(field === "camera"){
+    const t = body.querySelector(`.time-input[data-idx="${idx}"]`);
+    if(t) t.focus();
+    return;
+  }
+  if(field === "time"){
+    const ev = body.querySelector(`.event-input[data-idx="${idx}"]`);
+    if(ev) ev.focus();
+    return;
+  }
+
+  // field === "event"
+  if(idx === rows.length - 1){
+    rows.push(emptyRow());
+    await saveRows(state.currentIso, shiftIndex, rows);
+    // إعادة رسم صفوف هذه الوردية فقط
+    body.innerHTML = rowsBodyHtml(rows);
+    wireRowsBody(shiftIndex);
+    const newCam = body.querySelector(`.camera-input[data-idx="${rows.length-1}"]`);
+    if(newCam) newCam.focus();
+  }else{
+    const nextCam = body.querySelector(`.camera-input[data-idx="${idx+1}"]`);
+    if(nextCam) nextCam.focus();
+  }
+}
+
+async function onDeleteRow(e, shiftIndex){
+  const idx = parseInt(e.currentTarget.dataset.idx, 10);
+  let rows = await currentRowsFromDom(shiftIndex);
+  rows.splice(idx,1);
+  if(rows.length === 0) rows = [emptyRow()];
+  await saveRows(state.currentIso, shiftIndex, rows);
+  const body = document.getElementById(`rowsBody-${shiftIndex}`);
+  body.innerHTML = rowsBodyHtml(rows);
+  wireRowsBody(shiftIndex);
+}
+
+/* ---------- قسم الحالة + محررو التقرير + التوقيعات (لكل بلوك/وردية على حدة) ---------- */
+function escapeHtml(s){
+  return (s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function wireShiftStatus(shiftIndex, meta, shiftMeta){
+  const allGoodCheck = document.getElementById(`allGoodCheck-${shiftIndex}`);
+  const faultField = document.getElementById(`faultField-${shiftIndex}`);
+  const faultInput = document.getElementById(`faultInput-${shiftIndex}`);
+
+  allGoodCheck.addEventListener("change", ()=>{
+    shiftMeta.allGood = allGoodCheck.checked;
+    faultField.style.display = shiftMeta.allGood ? "none" : "";
+    if(shiftMeta.allGood) faultInput.value = "";
+    shiftMeta.fault = faultInput.value;
+    scheduleMetaSave(meta);
+  });
+
+  faultInput.addEventListener("input", ()=>{
+    shiftMeta.fault = faultInput.value;
+    scheduleMetaSave(meta);
+  });
+
+  const editorListId = `editorList-${shiftIndex}`;
+  renderEditorList(editorListId, shiftMeta.editors);
+  wireEditorList(editorListId, meta, shiftMeta);
+
+  const signatureListId = `signatureList-${shiftIndex}`;
+  renderNameList(signatureListId, shiftMeta.signatures);
+  wireNameList(signatureListId, meta, shiftMeta, "signatures");
+}
+
+/* ---- محررو التقرير: اسم + دروب بوكس وردية (من الأولى إلى الخامسة) ---- */
+function editorShiftOptionsHtml(selected){
+  let html = "";
+  for(let i=1;i<=SHIFT_NAMES.length;i++){
+    html += `<option value="${i}" ${selected===i ? "selected" : ""}>${SHIFT_NAMES[i-1]}</option>`;
+  }
+  return html;
+}
+
+function renderEditorList(containerId, list){
+  const box = document.getElementById(containerId);
+  box.innerHTML = list.map((ed,i)=>`
+    <div class="editor-line" data-idx="${i}">
+      <input type="text" class="editor-name-input" data-idx="${i}" value="${escapeHtml(ed.name)}" placeholder="اسم المحرر" enterkeyhint="next">
+      <select class="editor-shift-select" data-idx="${i}">
+        ${editorShiftOptionsHtml(ed.shift)}
+      </select>
+      ${list.length>1 ? `<button class="name-del" data-idx="${i}">✕</button>` : ""}
+    </div>
+  `).join("");
+}
+
+function wireEditorList(containerId, meta, shiftMeta){
+  const box = document.getElementById(containerId);
+  const nameInputs = ()=> Array.from(box.querySelectorAll(".editor-name-input"));
+
+  box.querySelectorAll(".editor-name-input").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      shiftMeta.editors[idx].name = inp.value;
+      scheduleMetaSave(meta);
+    });
+    bindEnterKey(inp, ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      const all = nameInputs();
+      if(idx === all.length - 1){
+        const lastShift = shiftMeta.editors[idx].shift || 1;
+        shiftMeta.editors.push({ name:"", shift:lastShift });
+        scheduleMetaSave(meta);
+        renderEditorList(containerId, shiftMeta.editors);
+        wireEditorList(containerId, meta, shiftMeta);
+        const newAll = nameInputs();
+        newAll[newAll.length-1].focus();
+      }else{
+        all[idx+1].focus();
+      }
+    });
+  });
+
+  box.querySelectorAll(".editor-shift-select").forEach(sel=>{
+    sel.addEventListener("change", ()=>{
+      const idx = parseInt(sel.dataset.idx,10);
+      shiftMeta.editors[idx].shift = parseInt(sel.value,10);
+      scheduleMetaSave(meta);
+    });
+  });
+
+  box.querySelectorAll(".name-del").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = parseInt(btn.dataset.idx,10);
+      shiftMeta.editors.splice(idx,1);
+      if(shiftMeta.editors.length === 0) shiftMeta.editors = [{ name:"", shift:1 }];
+      scheduleMetaSave(meta);
+      renderEditorList(containerId, shiftMeta.editors);
+      wireEditorList(containerId, meta, shiftMeta);
+    });
+  });
+}
+
+/* ---- قائمة أسماء بسيطة (تُستخدم لتوقيع المستلم) ---- */
+function renderNameList(containerId, list){
+  const box = document.getElementById(containerId);
+  box.innerHTML = list.map((val,i)=>`
+    <div class="name-line" data-idx="${i}">
+      <input type="text" class="name-input" data-idx="${i}" value="${escapeHtml(val)}" placeholder="الاسم" enterkeyhint="next">
+      ${list.length>1 ? `<button class="name-del" data-idx="${i}">✕</button>` : ""}
+    </div>
+  `).join("");
+}
+
+function wireNameList(containerId, meta, shiftMeta, key){
+  const box = document.getElementById(containerId);
+  const inputs = ()=> Array.from(box.querySelectorAll(".name-input"));
+
+  box.querySelectorAll(".name-input").forEach(inp=>{
+    inp.addEventListener("input", ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      shiftMeta[key][idx] = inp.value;
+      scheduleMetaSave(meta);
+    });
+    bindEnterKey(inp, ()=>{
+      const idx = parseInt(inp.dataset.idx,10);
+      const all = inputs();
+      if(idx === all.length - 1){
+        shiftMeta[key].push("");
+        scheduleMetaSave(meta);
+        renderNameList(containerId, shiftMeta[key]);
+        wireNameList(containerId, meta, shiftMeta, key);
+        const newInputs = inputs();
+        newInputs[newInputs.length-1].focus();
+      }else{
+        all[idx+1].focus();
+      }
+    });
+  });
+
+  box.querySelectorAll(".name-del").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const idx = parseInt(btn.dataset.idx,10);
+      shiftMeta[key].splice(idx,1);
+      if(shiftMeta[key].length === 0) shiftMeta[key] = [""];
+      scheduleMetaSave(meta);
+      renderNameList(containerId, shiftMeta[key]);
+      wireNameList(containerId, meta, shiftMeta, key);
+    });
+
+  });
+}
+
+/* =========================================================
+   الوضع الليلي/النهاري
+========================================================= */
+function applyThemeIcon(){
+  const btn = document.getElementById("themeToggle");
+  if(!btn) return;
+  const isDark = document.documentElement.classList.contains("dark");
+  btn.textContent = isDark ? "☀️" : "🌙";
+}
+
+function initThemeToggle(){
+  applyThemeIcon();
+  document.getElementById("themeToggle").addEventListener("click", ()=>{
+    const html = document.documentElement;
+    html.classList.toggle("dark");
+    try{
+      localStorage.setItem("crt_theme", html.classList.contains("dark") ? "dark" : "light");
+    }catch(e){}
+    applyThemeIcon();
+  });
+}
+
+/* =========================================================
+   تشغيل التطبيق
+========================================================= */
+(async function init(){
+  initThemeToggle();
+  await ensureCreatedDate();
+  await renderHome();
+})();
+</script>
+</body>
+</html>
